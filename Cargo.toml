@@ -1,0 +1,11 @@
+[package]
+name = "fakemail"
+version = "0.1.0"
+authors = ["Ben Campbell <ben@scumways.com>"]
+edition = "2018"
+
+[dependencies]
+fake = {version="2.4", features=['chrono']}
+rand = "0.8"
+chrono = "0.4"
+clap = "3.0.0-beta.2"
