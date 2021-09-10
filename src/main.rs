@@ -23,22 +23,38 @@ use clap::Clap;
 #[clap(name = "fakemail")]
 #[clap(version = "0.1", author = "ben@scumways.com")]
 struct Args {
-//    /// Output format
-//    #[clap(short, long, default_value = "mbox")]
-//    format: String,
+    /// Output format
+    #[clap(short, long, default_value = "mbox")]
+    format: String,
 
     /// Number of emails to generate
     #[clap(short, long, default_value = "1")]
     num: u32,
 }
 
+
+fn init_output(args: &Args) -> Box<dyn Dumper> {
+
+    if args.format=="maildir" {
+        Box::new(MailDirDumper{})
+    } else {
+        Box::new(MBoxOutput{ out: Box::new(std::io::stdout()) })
+    }
+}
+
 fn main() {
     let args = Args::parse();
 
-    let num = args.num;
-    let mut count = 0;
     let mut stack: Vec<Email> = Vec::new();
+    let mut out = init_output(&args);
+
+    //let out = &mut Foo{};
+
+    let mut count = 0;
     loop {
+        if count > args.num {
+            break;
+        }
         let choice = rand::thread_rng().gen_range(0..100);
         if choice < 50 {
             stack.pop();
@@ -48,13 +64,10 @@ fn main() {
         }
 
         let e = generate(stack.last());
-        dump(&e, &mut std::io::stdout());
+        out.dump(&e);
         stack.push(e);
 
         count = count + 1;
-        if count > num {
-            break;
-        }
     }
 }
 
@@ -117,15 +130,35 @@ fn generate(parent: Option<&Email>) -> Email {
 }
 
 
+trait Dumper {
+    fn dump(&mut self, email: &Email);
+}
 
-fn dump(email: &Email, out: &mut impl std::io::Write) {
-    let r = write!(out, "From \r\n");
-    r.expect("write fail");
 
-    for (name, val) in &email.headers {
-        let r = write!(out, "{}: {}\r\n", name, val);
+struct MBoxOutput<'a> {
+    out: Box<dyn std::io::Write + 'a>
+}
+
+impl Dumper for MBoxOutput<'_> {
+    fn dump(&mut self, email: &Email) {
+        let r = write!(self.out, "From \r\n");
+        r.expect("write fail");
+
+        for (name, val) in &email.headers {
+            let r = write!(self.out, "{}: {}\r\n", name, val);
+            r.expect("write fail");
+        }
+        let r = write!(self.out, "\r\n{}\r\n", email.body);
         r.expect("write fail");
     }
-    let r = write!(out, "\r\n{}\r\n", email.body);
-    r.expect("write fail");
 }
+
+struct MailDirDumper {
+}
+
+impl Dumper for MailDirDumper {
+    fn dump(&mut self, _email: &Email) {
+        println!("EMAIL!");
+    }
+}
+
