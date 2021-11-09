@@ -14,6 +14,8 @@ use fake::locales::*;
 use fake::Fake;
 use rand::Rng; // 0.8.0
 //use std::io::Write;
+//use std::fs::File;
+
 
 use clap::Clap;
 
@@ -24,21 +26,25 @@ use clap::Clap;
 #[clap(version = "0.1", author = "ben@scumways.com")]
 struct Args {
     /// Output format
-    #[clap(short, long, default_value = "mbox")]
+    #[clap(short, default_value = "mbox")]
     format: String,
 
+    /// Output location (file for mbox, dir for .eml)
+    #[clap(short)] 
+    output: Option<String>,
+
     /// Number of emails to generate
-    #[clap(short, long, default_value = "1")]
+    #[clap(short, default_value = "1")]
     num: u32,
 }
 
 
 fn init_output(args: &Args) -> Box<dyn Dumper> {
 
-    if args.format=="maildir" {
-        Box::new(MailDirDumper{})
+    if args.format=="eml" {
+        Box::new(EMLDumper{})
     } else {
-        Box::new(MBoxOutput{ out: Box::new(std::io::stdout()) })
+        Box::new(MBoxDumper::new(&args.output))
     }
 }
 
@@ -52,7 +58,7 @@ fn main() {
 
     let mut count = 0;
     loop {
-        if count > args.num {
+        if count >= args.num {
             break;
         }
         let choice = rand::thread_rng().gen_range(0..100);
@@ -135,28 +141,35 @@ trait Dumper {
 }
 
 
-struct MBoxOutput<'a> {
+struct MBoxDumper<'a> {
     out: Box<dyn std::io::Write + 'a>
 }
-
-impl Dumper for MBoxOutput<'_> {
-    fn dump(&mut self, email: &Email) {
-        let r = write!(self.out, "From \r\n");
-        r.expect("write fail");
-
-        for (name, val) in &email.headers {
-            let r = write!(self.out, "{}: {}\r\n", name, val);
-            r.expect("write fail");
-        }
-        let r = write!(self.out, "\r\n{}\r\n", email.body);
-        r.expect("write fail");
+        
+impl<'a> MBoxDumper<'a> {
+    fn new(outfile: &Option<String>) -> MBoxDumper<'a> {
+        let f: Box<dyn std::io::Write> = match outfile {
+            Some(name) => Box::new(std::fs::File::create(name).expect("Couldn't create mbox")),
+            None => Box::new(std::io::stdout()),
+        };
+        MBoxDumper{ out: f }
     }
 }
 
-struct MailDirDumper {
+impl Dumper for MBoxDumper<'_> {
+    fn dump(&mut self, email: &Email) {
+        write!(self.out, "From \r\n").expect("write fail");
+        for (name, val) in &email.headers {
+            write!(self.out, "{}: {}\r\n", name, val).expect("write fail");
+        }
+        write!(self.out, "\r\n{}\r\n", email.body).expect("write fail");
+        write!(self.out, "\r\n").expect("write fail");
+    }
 }
 
-impl Dumper for MailDirDumper {
+struct EMLDumper {
+}
+
+impl Dumper for EMLDumper {
     fn dump(&mut self, _email: &Email) {
         println!("EMAIL!");
     }
