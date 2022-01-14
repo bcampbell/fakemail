@@ -70,7 +70,7 @@ fn main() {
         }
 
         let e = generate(stack.last());
-        out.dump(&e);
+        out.dump(&e).expect("dump failed!");
         stack.push(e);
 
         count = count + 1;
@@ -137,7 +137,8 @@ fn generate(parent: Option<&Email>) -> Email {
 
 
 trait Dumper {
-    fn dump(&mut self, email: &Email);
+    // TODO: should be able to return errors
+    fn dump(&mut self, email: &Email) -> std::io::Result<()>;
 }
 
 
@@ -156,13 +157,14 @@ impl<'a> MBoxDumper<'a> {
 }
 
 impl Dumper for MBoxDumper<'_> {
-    fn dump(&mut self, email: &Email) {
-        write!(self.out, "From \r\n").expect("write fail");
+    fn dump(&mut self, email: &Email) -> std::io::Result<()>{
+        write!(self.out, "From \r\n")?;
         for (name, val) in &email.headers {
-            write!(self.out, "{}: {}\r\n", name, val).expect("write fail");
+            write!(self.out, "{}: {}\r\n", name, val)?;
         }
-        write!(self.out, "\r\n{}\r\n", email.body).expect("write fail");
-        write!(self.out, "\r\n").expect("write fail");
+        write!(self.out, "\r\n{}\r\n", email.body)?;
+        write!(self.out, "\r\n")?;
+        Ok(())
     }
 }
 
@@ -170,8 +172,8 @@ struct EMLDumper {
 }
 
 impl Dumper for EMLDumper {
-    fn dump(&mut self, _email: &Email) {
-        println!("EMAIL!");
+    fn dump(&mut self, _email: &Email) -> std::io::Result<()>{
+        Ok(())
     }
 }
 
