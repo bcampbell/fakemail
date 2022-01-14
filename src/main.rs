@@ -14,8 +14,9 @@ use fake::locales::*;
 use fake::Fake;
 use rand::Rng; // 0.8.0
 //use std::io::Write;
-//use std::fs::File;
-
+use std::fs::File;
+use std::io::prelude::*;
+use std::path::PathBuf;
 
 use clap::Clap;
 
@@ -42,7 +43,7 @@ struct Args {
 fn init_output(args: &Args) -> Box<dyn Dumper> {
 
     if args.format=="eml" {
-        Box::new(EMLDumper{})
+        Box::new(EMLDumper::new(args))
     } else {
         Box::new(MBoxDumper::new(&args.output))
     }
@@ -137,7 +138,6 @@ fn generate(parent: Option<&Email>) -> Email {
 
 
 trait Dumper {
-    // TODO: should be able to return errors
     fn dump(&mut self, email: &Email) -> std::io::Result<()>;
 }
 
@@ -169,10 +169,33 @@ impl Dumper for MBoxDumper<'_> {
 }
 
 struct EMLDumper {
+    outdir: String,
+    i: u32,
+}
+
+impl EMLDumper {
+    fn new(args: &Args) -> EMLDumper {
+        let f: String = match &args.output {
+            Some(name) => name.clone(),
+            None => ".".to_string(),
+        };
+        EMLDumper{ outdir: f, i: 0 }
+    }
 }
 
 impl Dumper for EMLDumper {
-    fn dump(&mut self, _email: &Email) -> std::io::Result<()>{
+    fn dump(&mut self, email: &Email) -> std::io::Result<()>{
+        let mut path = PathBuf::from(self.outdir.to_string());
+        path.push(format!("{}.eml", self.i));
+        self.i = self.i + 1;
+
+        let mut f = File::create(path)?;
+        for (name, val) in &email.headers {
+            write!(f, "{}: {}\r\n", name, val)?;
+        }
+        write!(f, "\r\n{}\r\n", email.body)?;
+        write!(f, "\r\n")?;
+
         Ok(())
     }
 }
