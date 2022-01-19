@@ -8,4 +8,4 @@ edition = "2018"
 fake = {version="2.4", features=['chrono']}
 rand = "0.8"
 chrono = "0.4"
-clap = "3.0.0-beta.2"
+clap = { version = "3.0.7", features = ["derive"] }

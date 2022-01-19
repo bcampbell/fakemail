@@ -1,8 +1,3 @@
-//use std::io;
-//use fake::{Dummy, Fake, Faker};
-//use rand::rngs::StdRng;
-//use rand::SeedableRng;
-extern crate chrono;
 use std::collections::HashMap;
 
 use chrono::prelude::*;
@@ -13,24 +8,23 @@ use fake::faker::lorem::en::*;
 use fake::locales::*;
 use fake::Fake;
 use rand::Rng; // 0.8.0
-//use std::io::Write;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::PathBuf;
 
-use clap::Clap;
+use clap::Parser;
 
 /// Generate fake emails for testing.
-/// Outputs in mbox format.
-#[derive(Clap, Debug)]
+/// Can produce either a single mbox file, or multiple .eml files.
+#[derive(Parser, Debug)]
 #[clap(name = "fakemail")]
 #[clap(version = "0.1", author = "ben@scumways.com")]
 struct Args {
-    /// Output format
+    /// Output format (mbox, eml)
     #[clap(short, default_value = "mbox")]
     format: String,
 
-    /// Output location (file for mbox, dir for .eml)
+    /// Output file for mbox, dir for eml (defaults: stdout/cwd).
     #[clap(short)] 
     output: Option<String>,
 
@@ -41,7 +35,6 @@ struct Args {
 
 
 fn init_output(args: &Args) -> Box<dyn Dumper> {
-
     if args.format=="eml" {
         Box::new(EMLDumper::new(args))
     } else {
