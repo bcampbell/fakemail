@@ -45,16 +45,16 @@ fn init_output(args: &Args) -> Box<dyn Dumper> {
 fn main() {
     let args = Args::parse();
 
+    // Maintain a stack of replies.
     let mut stack: Vec<Email> = Vec::new();
     let mut out = init_output(&args);
-
-    //let out = &mut Foo{};
 
     let mut count = 0;
     loop {
         if count >= args.num {
             break;
         }
+        // A couple of chances to go back up the thread...
         let choice = rand::thread_rng().gen_range(0..100);
         if choice < 50 {
             stack.pop();
@@ -62,7 +62,6 @@ fn main() {
         if choice < 80 {
             stack.pop();
         }
-
         let e = generate(stack.last());
         out.dump(&e).expect("dump failed!");
         stack.push(e);
@@ -76,6 +75,8 @@ struct Email {
     body: String,
 }
 
+// Create a single email.
+// If the parent is set, the generated email will be a reply.
 fn generate(parent: Option<&Email>) -> Email {
     let mut hdrs: HashMap<String, String> = HashMap::new();
 
@@ -88,18 +89,35 @@ fn generate(parent: Option<&Email>) -> Email {
     // "Message-ID"
 
     // "In-Reply-To"
-    // "References" ?
+    // "References"
     let from: String = SafeEmail(EN).fake();
     hdrs.insert("From".to_string(), from);
 
     let ns = Utc::now().timestamp_nanos() as i64;
-    hdrs.insert(String::from("Message-ID"), format!("<{}>", ns));
+    let domain : String = FreeEmailProvider(EN).fake();
+
+    let message_id = format!("<{}@{}>", ns % 1000000, domain);
+    hdrs.insert("Message-ID".to_string(), String::from(&message_id));
 
     // Crafting a reply?
     if let Some(m) = &parent {
         let parent_id = m.headers.get("Message-ID").unwrap();
         hdrs.insert(String::from("In-Reply-To"), parent_id.to_string());
-        hdrs.insert(String::from("References"), parent_id.to_string());
+
+        let mut refs : String;
+        if m.headers.contains_key("References") {
+            refs = m.headers.get("References").unwrap().to_string();
+            refs.push(' ');
+        } else if m.headers.contains_key("In-Reply-To") {
+            refs = m.headers.get("In-Reply-To").unwrap().to_string();
+            refs.push(' ');
+        } else {
+            refs = String::from("");
+        }
+
+        refs += &parent_id;
+
+        hdrs.insert(String::from("References"), refs.to_string());
 
         // reuse subject
         let subj = m.headers.get("Subject").unwrap();
