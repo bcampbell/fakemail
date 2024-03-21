@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use chrono::prelude::*;
 use fake::faker::chrono::raw::DateTime;
+use fake::faker::chrono::raw::DateTimeAfter;
+use fake::faker::chrono::raw::DateTimeBetween;
 use fake::faker::company::raw::*;
 use fake::faker::internet::raw::*;
 use fake::faker::lorem::en::*;
@@ -128,11 +130,25 @@ fn generate(parent: Option<&Email>) -> Email {
             hdrs.insert(String::from("Subject"), new_subj.to_string());
         }
 
-        // TODO: parse parent date and move forwards.
-        let date: chrono::DateTime<Utc> = DateTime(EN).fake();
-        hdrs.insert(String::from("Date"), date.to_rfc2822());
+        let parent_date_hdr = m.headers.get("Date");
+        if (parent_date_hdr).is_some() {
+            let parent_date: chrono::DateTime<Utc> =
+                chrono::DateTime::parse_from_rfc2822(parent_date_hdr.unwrap())
+                    .unwrap()
+                    .into();
+            let date: chrono::DateTime<Utc> = DateTimeAfter(EN, parent_date).fake();
+            hdrs.insert(String::from("Date"), date.to_rfc2822());
+        } else {
+            let date: chrono::DateTime<Utc> = DateTime(EN).fake();
+            hdrs.insert(String::from("Date"), date.to_rfc2822());
+        }
     } else {
-        let date: chrono::DateTime<Utc> = DateTime(EN).fake();
+        let date: chrono::DateTime<Utc> = DateTimeBetween(
+            EN,
+            Utc.with_ymd_and_hms(1990, 1, 1, 0, 0, 0).unwrap(),
+            Utc::now(),
+        )
+        .fake();
         hdrs.insert(String::from("Date"), date.to_rfc2822());
         // a brand new subject
         let subj = CatchPhase(EN).fake();
