@@ -27,7 +27,7 @@ struct Args {
     format: String,
 
     /// Output file for mbox, dir for eml (defaults: stdout/cwd).
-    #[clap(short)] 
+    #[clap(short)]
     output: Option<String>,
 
     /// Number of emails to generate
@@ -35,9 +35,8 @@ struct Args {
     num: u32,
 }
 
-
 fn init_output(args: &Args) -> Box<dyn Dumper> {
-    if args.format=="eml" {
+    if args.format == "eml" {
         Box::new(EMLDumper::new(args))
     } else {
         Box::new(MBoxDumper::new(&args.output))
@@ -96,7 +95,7 @@ fn generate(parent: Option<&Email>) -> Email {
     hdrs.insert("From".to_string(), from);
 
     let ns = Utc::now().timestamp_nanos() as i64;
-    let domain : String = FreeEmailProvider(EN).fake();
+    let domain: String = FreeEmailProvider(EN).fake();
 
     let message_id = format!("<{}@{}>", ns % 1000000, domain);
     hdrs.insert("Message-ID".to_string(), String::from(&message_id));
@@ -106,7 +105,7 @@ fn generate(parent: Option<&Email>) -> Email {
         let parent_id = m.headers.get("Message-ID").unwrap();
         hdrs.insert(String::from("In-Reply-To"), parent_id.to_string());
 
-        let mut refs : String;
+        let mut refs: String;
         if m.headers.contains_key("References") {
             refs = m.headers.get("References").unwrap().to_string();
             refs.push(' ');
@@ -130,18 +129,18 @@ fn generate(parent: Option<&Email>) -> Email {
             hdrs.insert(String::from("Subject"), new_subj.to_string());
         }
 
+        // If parent has a date, make the reply come later.
         let parent_date_hdr = m.headers.get("Date");
-        if (parent_date_hdr).is_some() {
-            let parent_date: chrono::DateTime<Utc> =
-                chrono::DateTime::parse_from_rfc2822(parent_date_hdr.unwrap())
-                    .unwrap()
+        let date: chrono::DateTime<Utc> = match parent_date_hdr {
+            Some(hdr) => {
+                let parent_date: chrono::DateTime<Utc> = chrono::DateTime::parse_from_rfc2822(hdr)
+                    .expect("Couldn't parse date in header")
                     .into();
-            let date: chrono::DateTime<Utc> = DateTimeAfter(EN, parent_date).fake();
-            hdrs.insert(String::from("Date"), date.to_rfc2822());
-        } else {
-            let date: chrono::DateTime<Utc> = DateTime(EN).fake();
-            hdrs.insert(String::from("Date"), date.to_rfc2822());
-        }
+                DateTimeAfter(EN, parent_date).fake()
+            }
+            None => DateTime(EN).fake(),
+        };
+        hdrs.insert(String::from("Date"), date.to_rfc2822());
     } else {
         let date: chrono::DateTime<Utc> = DateTimeBetween(
             EN,
@@ -163,28 +162,26 @@ fn generate(parent: Option<&Email>) -> Email {
     }
 }
 
-
 trait Dumper {
     fn dump(&mut self, email: &Email) -> std::io::Result<()>;
 }
 
-
 struct MBoxDumper<'a> {
-    out: Box<dyn std::io::Write + 'a>
+    out: Box<dyn std::io::Write + 'a>,
 }
-        
+
 impl<'a> MBoxDumper<'a> {
     fn new(outfile: &Option<String>) -> MBoxDumper<'a> {
         let f: Box<dyn std::io::Write> = match outfile {
             Some(name) => Box::new(std::fs::File::create(name).expect("Couldn't create mbox")),
             None => Box::new(std::io::stdout()),
         };
-        MBoxDumper{ out: f }
+        MBoxDumper { out: f }
     }
 }
 
 impl Dumper for MBoxDumper<'_> {
-    fn dump(&mut self, email: &Email) -> std::io::Result<()>{
+    fn dump(&mut self, email: &Email) -> std::io::Result<()> {
         write!(self.out, "From \r\n")?;
         for (name, val) in &email.headers {
             write!(self.out, "{}: {}\r\n", name, val)?;
@@ -206,12 +203,12 @@ impl EMLDumper {
             Some(name) => name.clone(),
             None => ".".to_string(),
         };
-        EMLDumper{ outdir: f, i: 0 }
+        EMLDumper { outdir: f, i: 0 }
     }
 }
 
 impl Dumper for EMLDumper {
-    fn dump(&mut self, email: &Email) -> std::io::Result<()>{
+    fn dump(&mut self, email: &Email) -> std::io::Result<()> {
         let mut path = PathBuf::from(self.outdir.to_string());
         path.push(format!("{}.eml", self.i));
         self.i = self.i + 1;
@@ -226,4 +223,3 @@ impl Dumper for EMLDumper {
         Ok(())
     }
 }
-
