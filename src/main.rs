@@ -11,10 +11,14 @@ use fake::locales::*;
 use fake::Fake;
 use rand::Rng; // 0.8.0
 use std::fs::File;
+use std::fs;
 use std::io::prelude::*;
 use std::path::PathBuf;
-
+//use rand::prelude::IteratorRandom;
+use rand::prelude::SliceRandom;
 use clap::Parser;
+
+mod parts;
 
 /// Generate fake emails for testing.
 /// Can produce either a single mbox file, or multiple .eml files.
@@ -30,6 +34,10 @@ struct Args {
     #[clap(short)]
     output: Option<String>,
 
+    /// Directory holding files to randomly attach to messages.
+    #[clap(short)]
+    attach_dir: Option<String>,
+
     /// Number of emails to generate
     #[clap(short, default_value = "1")]
     num: u32,
@@ -43,11 +51,34 @@ fn init_output(args: &Args) -> Box<dyn Dumper> {
     }
 }
 
+// Pick a random file from dir_path (which can be missing).
+pub fn pick_file(dir_path: Option<&str>) -> Option<PathBuf> {
+    match dir_path {
+        Some(dir) => {
+            // from https://stackoverflow.com/questions/58062887/filtering-files-or-directories-discovered-with-fsread-dir
+            let files: Vec<_> = fs::read_dir(dir).unwrap()
+                .into_iter()
+                .filter(|r| r.is_ok()) // Get rid of Err variants for Result<DirEntry>
+                .map(|r| r.unwrap().path()) // This is safe, since we only have the Ok variants
+                .filter(|r| r.is_file()) // Filter out dirs
+                .collect();
+
+            let mut rng = rand::thread_rng();
+            match files.choose(&mut rng) {
+                Some(x) => Some(x.to_path_buf()),
+                None => None,
+            }
+        },
+        None => None,
+    }
+}
+
 fn main() {
     let args = Args::parse();
 
     // Maintain a stack of replies.
-    let mut stack: Vec<Email> = Vec::new();
+    // Each part here is the root mimepart of the email.
+    let mut stack: Vec<parts::Part> = Vec::new();
     let mut out = init_output(&args);
 
     let mut count = 0;
@@ -63,7 +94,7 @@ fn main() {
         if choice < 80 {
             stack.pop();
         }
-        let e = generate(stack.last());
+        let e = generate(stack.last(), &args.attach_dir);
         out.dump(&e).expect("dump failed!");
         stack.push(e);
 
@@ -71,14 +102,13 @@ fn main() {
     }
 }
 
-struct Email {
-    headers: HashMap<String, String>,
-    body: String,
-}
-
 // Create a single email.
 // If the parent is set, the generated email will be a reply.
-fn generate(parent: Option<&Email>) -> Email {
+// Returns the root mimepart of the email. Might be the only part,
+// or might be multipart...
+fn generate(parent: Option<&parts::Part>, attach_dir: &Option<String>) -> parts::Part {
+
+    // Start off by generating some headers for the email.
     let mut hdrs: HashMap<String, String> = HashMap::new();
 
     // headers, from rfc2822:
@@ -120,7 +150,7 @@ fn generate(parent: Option<&Email>) -> Email {
 
         hdrs.insert(String::from("References"), refs.to_string());
 
-        // reuse subject
+        // Reuse subject.
         let subj = m.headers.get("Subject").unwrap();
         if subj.starts_with("Re: ") {
             hdrs.insert(String::from("Subject"), subj.to_string());
@@ -154,18 +184,52 @@ fn generate(parent: Option<&Email>) -> Email {
         hdrs.insert(String::from("Subject"), subj);
     }
 
-    let words: Vec<String> = Sentences(1..10).fake();
 
-    Email {
-        headers: hdrs,
-        body: words.join("\r\n"),
+    // Generate email body.
+    let words: Vec<String> = Sentences(1..10).fake();
+    let text = words.join("\r\n") + "\r\n";
+    let plain = parts::create_plaintext(&text);
+
+    // If there's an attachment dir set, randomly pick 0..4 files to
+    // attach to the message.
+    let mut rng = rand::thread_rng();
+    let num_attachments = match attach_dir {
+        Some(_d) => [0,0,0,0,0,0,0,1,1,1,1,2,2,2,3,3,4].choose(&mut rng).unwrap().clone(),
+        None => 0,
+    };
+
+
+    let mut attachments : Vec<parts::Part> = Vec::new();
+    for _ in 0..num_attachments {
+        match pick_file(attach_dir.as_deref()) {
+            Some(f) =>{
+                let att = parts::create_attachment(&f);
+                attachments.push(att);
+            },
+            None => {},
+        };
     }
+
+
+    let mut root = if attachments.len() > 0 {
+        let mut children : Vec<parts::Part> = Vec::new();
+        children.push(plain);   // Use our text/plain as the first part.
+        children.append(&mut attachments);
+        parts::create_multipart_mixed(children)
+    } else {
+        plain               // Single part, text-only message.
+    };
+
+    // Add the main email headers (To/From/Subject etc) to the root part.
+    root.headers.extend(hdrs);
+    root
 }
 
 trait Dumper {
-    fn dump(&mut self, email: &Email) -> std::io::Result<()>;
+    fn dump(&mut self, email: &parts::Part) -> std::io::Result<()>;
 }
 
+// For writing emails out to a single mbox file.
 struct MBoxDumper<'a> {
     out: Box<dyn std::io::Write + 'a>,
 }
@@ -181,17 +245,15 @@ impl<'a> MBoxDumper<'a> {
 }
 
 impl Dumper for MBoxDumper<'_> {
-    fn dump(&mut self, email: &Email) -> std::io::Result<()> {
+    fn dump(&mut self, email: &parts::Part) -> std::io::Result<()> {
+        // TODO: escape "From " lines in body!
         write!(self.out, "From \r\n")?;
-        for (name, val) in &email.headers {
-            write!(self.out, "{}: {}\r\n", name, val)?;
-        }
-        write!(self.out, "\r\n{}\r\n", email.body)?;
-        write!(self.out, "\r\n")?;
+        write!(self.out, "{}\r\n", email)?;
         Ok(())
     }
 }
 
+// For writing out emails as individual files to outdir.
 struct EMLDumper {
     outdir: String,
     i: u32,
@@ -208,18 +270,15 @@ impl EMLDumper {
 }
 
 impl Dumper for EMLDumper {
-    fn dump(&mut self, email: &Email) -> std::io::Result<()> {
+    fn dump(&mut self, email: &parts::Part) -> std::io::Result<()> {
         let mut path = PathBuf::from(self.outdir.to_string());
         path.push(format!("{}.eml", self.i));
         self.i = self.i + 1;
 
         let mut f = File::create(path)?;
-        for (name, val) in &email.headers {
-            write!(f, "{}: {}\r\n", name, val)?;
-        }
-        write!(f, "\r\n{}\r\n", email.body)?;
-        write!(f, "\r\n")?;
+        write!(f, "{}", email)?;
 
         Ok(())
     }
 }
+
