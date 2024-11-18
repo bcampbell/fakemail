@@ -180,7 +180,7 @@ fn generate(parent: Option<&parts::Part>, attach_dir: &Option<String>) -> parts:
         .fake();
         hdrs.insert(String::from("Date"), date.to_rfc2822());
         // a brand new subject
-        let subj = CatchPhase(EN).fake();
+        let subj = CatchPhrase(EN).fake();
         hdrs.insert(String::from("Subject"), subj);
     }
 
